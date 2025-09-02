@@ -48,8 +48,52 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
     setSelectedPlayer(null)
   }
 
-  // Organizar jogadores por pontos (rating) - do maior para o menor
-  const sortedPlayers = [...players].sort((a, b) => b.rating - a.rating)
+  // Função para calcular estatísticas gerais do jogador (histórico completo)
+  const getPlayerGeneralStats = (playerName: string) => {
+    let totalWins = 0
+    let totalMatches = 0
+    let totalPoints = 1000 // Começa com 1000
+
+    matches.forEach(match => {
+      if (!match.players || !match.winner) return
+
+      const isPlayerInMatch = match.players.includes(playerName)
+      if (!isPlayerInMatch) return
+
+      totalMatches++
+      
+      const winners = Array.isArray(match.winner) ? match.winner : [match.winner]
+      const isPlayerWinner = winners.includes(playerName)
+      
+      if (isPlayerWinner) {
+        totalWins++
+        totalPoints += 50 // +50 por vitória
+      } else {
+        totalPoints = Math.max(1000, totalPoints - 20) // -20 por derrota, mínimo 1000
+      }
+    })
+
+    return {
+      totalWins,
+      totalMatches,
+      totalPoints,
+      winRate: totalMatches > 0 ? totalWins / totalMatches : 0
+    }
+  }
+
+  // Organizar jogadores por pontos calculados - do maior para o menor
+  const playersWithCalculatedStats = players.map(player => {
+    const stats = getPlayerGeneralStats(player.name)
+    return {
+      ...player,
+      calculatedRating: stats.totalPoints,
+      calculatedMatches: stats.totalMatches,
+      calculatedWins: stats.totalWins,
+      calculatedWinRate: stats.winRate
+    }
+  })
+
+  const sortedPlayers = [...playersWithCalculatedStats].sort((a, b) => b.calculatedRating - a.calculatedRating)
   
   // Limitar para mostrar apenas os 10 primeiros ou todos se expandido
   const displayedPlayers = showAllPlayers ? sortedPlayers : sortedPlayers.slice(0, 10)
@@ -112,9 +156,11 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
 
   // Função para calcular estatísticas mensais do jogador
   const getPlayerMonthlyStats = (playerName: string) => {
+    // Usar o mesmo padrão de fuso horário das partidas (UTC-3)
     const now = new Date()
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
+    const adjustedNow = new Date(now.getTime() - (3 * 60 * 60 * 1000))
+    const currentMonth = adjustedNow.getMonth()
+    const currentYear = adjustedNow.getFullYear()
     
     let monthlyWins = 0
     let monthlyMatches = 0
@@ -126,9 +172,11 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
     matches.forEach(match => {
       if (!match.players || !match.winner || !match.date) return
 
+      // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
       const matchDate = new Date(match.date)
-      const matchMonth = matchDate.getMonth()
-      const matchYear = matchDate.getFullYear()
+      const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+      const matchMonth = adjustedMatchDate.getMonth()
+      const matchYear = adjustedMatchDate.getFullYear()
 
       // Verificar se a partida é do mês atual
       if (matchMonth === currentMonth && matchYear === currentYear) {
@@ -146,15 +194,18 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
       }
     })
 
-    // Calcular rating mensal (sistema melhorado) - começando de 1000
-    monthlyRating = Math.max(1000, 1000 + (monthlyWins * 50) - ((monthlyMatches - monthlyWins) * 20))
+    // Calcular pontos mensais (apenas os pontos conquistados no mês)
+    const monthlyPoints = (monthlyWins * 50) - ((monthlyMatches - monthlyWins) * 20)
+    monthlyRating = Math.max(1000, 1000 + monthlyPoints)
 
     // Calcular histórico de MVP
     const allMonths = new Set<string>()
     matches.forEach(match => {
       if (!match.date) return
+      // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
       const matchDate = new Date(match.date)
-      const monthKey = `${matchDate.getMonth()}-${matchDate.getFullYear()}`
+      const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+      const monthKey = `${adjustedMatchDate.getMonth()}-${adjustedMatchDate.getFullYear()}`
       allMonths.add(monthKey)
     })
 
@@ -173,9 +224,11 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
         matches.forEach(match => {
           if (!match.players || !match.winner || !match.date) return
 
+          // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
           const matchDate = new Date(match.date)
-          const matchMonth = matchDate.getMonth()
-          const matchYear = matchDate.getFullYear()
+          const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+          const matchMonth = adjustedMatchDate.getMonth()
+          const matchYear = adjustedMatchDate.getFullYear()
 
           if (matchMonth === month && matchYear === year) {
             const isPlayerInMatch = match.players.includes(player.name)
@@ -223,7 +276,8 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
     return { 
       monthlyWins, 
       monthlyMatches, 
-      monthlyRating,
+      monthlyRating, // rating total (1000 + pontos do mês)
+      monthlyPoints, // pontos conquistados no mês
       monthlyWinRate: monthlyMatches > 0 ? monthlyWins / monthlyMatches : 0,
       totalMVPCount,
       mvpHistory
@@ -436,9 +490,9 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                         </h3>
                       </div>
                       <div className="flex flex-col items-end gap-2 ml-3">
-                        {getDivisionBadge(player.rating)}
+                        {getDivisionBadge(player.calculatedRating)}
                         <Badge variant="secondary" className="bg-green-600/90 text-white shadow-md text-sm font-medium">
-                          {player.rating} pts
+                          {player.calculatedRating} pts
                         </Badge>
                       </div>
                     </div>
@@ -557,22 +611,22 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
 
                 {/* Pontos */}
                 <div className="text-center p-2 bg-gradient-to-br from-green-900/30 to-emerald-900/30 border border-green-400/30 rounded-lg">
-                  <div className="text-lg font-bold text-green-400 mb-1">{selectedPlayer.rating}</div>
+                  <div className="text-lg font-bold text-green-400 mb-1">{getPlayerGeneralStats(selectedPlayer.name).totalPoints}</div>
                   <div className="text-xs text-gray-300">Pontos</div>
                 </div>
 
                 {/* Divisão */}
                 <div className="text-center p-2 bg-gradient-to-br from-purple-900/30 to-pink-900/30 border border-purple-400/30 rounded-lg">
-                  <div className="text-xl mb-1">{getRankingDivision(selectedPlayer.rating).icon}</div>
+                  <div className="text-xl mb-1">{getRankingDivision(getPlayerGeneralStats(selectedPlayer.name).totalPoints).icon}</div>
                   <div className="text-xs font-bold text-purple-400">
-                    {getRankingDivision(selectedPlayer.rating).name} {getRankingDivision(selectedPlayer.rating).tier}
+                    {getRankingDivision(getPlayerGeneralStats(selectedPlayer.name).totalPoints).name} {getRankingDivision(getPlayerGeneralStats(selectedPlayer.name).totalPoints).tier}
                   </div>
                 </div>
 
                 {/* Membro Desde */}
                 <div className="text-center p-2 bg-gradient-to-br from-blue-900/30 to-cyan-900/30 border border-blue-400/30 rounded-lg">
                   <div className="text-lg font-bold text-blue-400 mb-1">
-                    {new Date().toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
+                    {new Date(selectedPlayer.created_at).toLocaleDateString('pt-BR', { month: 'short', year: 'numeric' })}
                   </div>
                   <div className="text-xs text-gray-300">Membro Desde</div>
                 </div>
@@ -600,7 +654,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                     <Card className="bg-gray-700/50 border-gray-600/50">
                       <CardContent className="p-4 text-center">
                         <Trophy className="h-8 w-8 mx-auto mb-2 text-yellow-400" />
-                        <div className="text-2xl font-bold text-green-400">{selectedPlayer.wins}</div>
+                        <div className="text-2xl font-bold text-green-400">{getPlayerGeneralStats(selectedPlayer.name).totalWins}</div>
                         <div className="text-sm text-gray-300">Vitórias Totais</div>
                       </CardContent>
                     </Card>
@@ -608,7 +662,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                     <Card className="bg-gray-700/50 border-gray-600/50">
                       <CardContent className="p-4 text-center">
                         <Calendar className="h-8 w-8 mx-auto mb-2 text-blue-400" />
-                        <div className="text-2xl font-bold text-blue-400">{selectedPlayer.matches}</div>
+                        <div className="text-2xl font-bold text-blue-400">{getPlayerGeneralStats(selectedPlayer.name).totalMatches}</div>
                         <div className="text-sm text-gray-300">Partidas Totais</div>
                       </CardContent>
                     </Card>
@@ -617,7 +671,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                       <CardContent className="p-4 text-center">
                         <BarChart3 className="h-8 w-8 mx-auto mb-2 text-purple-400" />
                         <div className="text-2xl font-bold text-purple-400">
-                          {selectedPlayer.matches > 0 ? ((selectedPlayer.wins / selectedPlayer.matches) * 100).toFixed(1) : 0}%
+                          {(getPlayerGeneralStats(selectedPlayer.name).winRate * 100).toFixed(1)}%
                         </div>
                         <div className="text-sm text-gray-300">Taxa de Vitória</div>
                       </CardContent>
@@ -800,7 +854,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                               </div>
                               
                               <div className="text-center p-4 bg-gradient-to-br from-yellow-900/30 to-amber-900/30 border border-yellow-400/30 rounded-xl hover:bg-yellow-900/40 transition-all duration-200">
-                                <div className="text-3xl font-bold text-yellow-400 mb-1">{monthlyStats.monthlyRating}</div>
+                                <div className="text-3xl font-bold text-yellow-400 mb-1">{monthlyStats.monthlyPoints}</div>
                                 <div className="text-sm text-gray-300 font-medium">Pontos</div>
                                 <div className="text-xs text-yellow-300">Mensais</div>
                               </div>
@@ -821,8 +875,9 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                     </CardHeader>
                     <CardContent>
                       {(() => {
-                        const currentDivision = getRankingDivision(selectedPlayer.rating)
-                        const nextDivision = getNextDivision(selectedPlayer.rating)
+                        const playerStats = getPlayerGeneralStats(selectedPlayer.name)
+                        const currentDivision = getRankingDivision(playerStats.totalPoints)
+                        const nextDivision = getNextDivision(playerStats.totalPoints)
                         
                         return (
                           <div className="space-y-4">
@@ -833,7 +888,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                                 {currentDivision.name} {currentDivision.tier}
                               </div>
                               <div className="text-sm text-gray-300 mt-1">
-                                {selectedPlayer.rating} pontos
+                                {playerStats.totalPoints} pontos
                               </div>
                             </div>
                             
@@ -843,19 +898,19 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                                 <div className="flex items-center justify-between mb-2">
                                   <span className="text-gray-300 text-sm">Progresso para {nextDivision.name} {nextDivision.tier}</span>
                                   <span className="text-purple-400 text-sm font-medium">
-                                    {selectedPlayer.rating}/{nextDivision.minRating} pts
+                                    {playerStats.totalPoints}/{nextDivision.minRating} pts
                                   </span>
                                 </div>
                                 <div className="w-full bg-gray-700 rounded-full h-2">
                                   <div 
                                     className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
                                     style={{ 
-                                      width: `${Math.min(100, Math.max(0, ((selectedPlayer.rating - getDivisionMinRating(selectedPlayer.rating)) / Math.max(1, (nextDivision.minRating - getDivisionMinRating(selectedPlayer.rating)))) * 100))}%` 
+                                      width: `${Math.min(100, Math.max(0, ((playerStats.totalPoints - getDivisionMinRating(playerStats.totalPoints)) / Math.max(1, (nextDivision.minRating - getDivisionMinRating(playerStats.totalPoints)))) * 100))}%` 
                                     }}
                                   ></div>
                                 </div>
                                 <div className="text-xs text-gray-400 mt-1">
-                                  Faltam {Math.max(0, nextDivision.minRating - selectedPlayer.rating)} pontos para subir
+                                  Faltam {Math.max(0, nextDivision.minRating - playerStats.totalPoints)} pontos para subir
                                 </div>
                               </div>
                             )}
@@ -892,7 +947,7 @@ export function PlayerManager({ players, matches, onAddPlayer, isAdmin }: Player
                                   <div 
                                     key={index}
                                     className={`p-2 rounded text-center ${
-                                      selectedPlayer.rating >= division.min 
+                                      playerStats.totalPoints >= division.min 
                                         ? 'bg-green-900/30 border border-green-500/30 text-green-300' 
                                         : 'bg-gray-700/30 text-gray-400'
                                     }`}

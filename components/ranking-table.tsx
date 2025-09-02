@@ -77,9 +77,11 @@ export function RankingTable({ players, matches }: RankingTableProps) {
 
   // Função para calcular estatísticas mensais do jogador
   const getPlayerMonthlyStats = (playerName: string) => {
+    // Usar o mesmo padrão de fuso horário das partidas (UTC-3)
     const now = new Date()
-    const currentMonth = now.getMonth()
-    const currentYear = now.getFullYear()
+    const adjustedNow = new Date(now.getTime() - (3 * 60 * 60 * 1000))
+    const currentMonth = adjustedNow.getMonth()
+    const currentYear = adjustedNow.getFullYear()
     
     let monthlyWins = 0
     let monthlyMatches = 0
@@ -91,9 +93,11 @@ export function RankingTable({ players, matches }: RankingTableProps) {
     matches.forEach(match => {
       if (!match.players || !match.winner || !match.date) return
 
+      // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
       const matchDate = new Date(match.date)
-      const matchMonth = matchDate.getMonth()
-      const matchYear = matchDate.getFullYear()
+      const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+      const matchMonth = adjustedMatchDate.getMonth()
+      const matchYear = adjustedMatchDate.getFullYear()
 
       // Verificar se a partida é do mês atual
       if (matchMonth === currentMonth && matchYear === currentYear) {
@@ -119,8 +123,10 @@ export function RankingTable({ players, matches }: RankingTableProps) {
     const allMonths = new Set<string>()
     matches.forEach(match => {
       if (!match.date) return
+      // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
       const matchDate = new Date(match.date)
-      const monthKey = `${matchDate.getMonth()}-${matchDate.getFullYear()}`
+      const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+      const monthKey = `${adjustedMatchDate.getMonth()}-${adjustedMatchDate.getFullYear()}`
       allMonths.add(monthKey)
     })
 
@@ -139,9 +145,11 @@ export function RankingTable({ players, matches }: RankingTableProps) {
         matches.forEach(match => {
           if (!match.players || !match.winner || !match.date) return
 
+          // Aplicar o mesmo ajuste de fuso horário usado nas partidas (UTC-3)
           const matchDate = new Date(match.date)
-          const matchMonth = matchDate.getMonth()
-          const matchYear = matchDate.getFullYear()
+          const adjustedMatchDate = new Date(matchDate.getTime() - (3 * 60 * 60 * 1000))
+          const matchMonth = adjustedMatchDate.getMonth()
+          const matchYear = adjustedMatchDate.getFullYear()
 
           if (matchMonth === month && matchYear === year) {
             const isPlayerInMatch = match.players.includes(player.name)
@@ -197,22 +205,63 @@ export function RankingTable({ players, matches }: RankingTableProps) {
     }
   }
 
-  // Ranking geral (histórico completo)
-  const sortedPlayers = [...players].sort((a, b) => {
-    // Sort by rating first, then by win rate, then by total wins
-    if (b.rating !== a.rating) {
-      return b.rating - a.rating
+  // Função para calcular estatísticas gerais do jogador (histórico completo)
+  const getPlayerGeneralStats = (playerName: string) => {
+    let totalWins = 0
+    let totalMatches = 0
+    let totalPoints = 1000 // Começa com 1000
+
+    matches.forEach(match => {
+      if (!match.players || !match.winner) return
+
+      const isPlayerInMatch = match.players.includes(playerName)
+      if (!isPlayerInMatch) return
+
+      totalMatches++
+      
+      const winners = Array.isArray(match.winner) ? match.winner : [match.winner]
+      const isPlayerWinner = winners.includes(playerName)
+      
+      if (isPlayerWinner) {
+        totalWins++
+        totalPoints += 50 // +50 por vitória
+      } else {
+        totalPoints = Math.max(1000, totalPoints - 20) // -20 por derrota, mínimo 1000
+      }
+    })
+
+    return {
+      totalWins,
+      totalMatches,
+      totalPoints,
+      winRate: totalMatches > 0 ? totalWins / totalMatches : 0
+    }
+  }
+
+  // Ranking geral (histórico completo) - calculado baseado nas partidas reais
+  const generalPlayers = players.map(player => {
+    const stats = getPlayerGeneralStats(player.name)
+    return {
+      ...player,
+      calculatedRating: stats.totalPoints,
+      calculatedMatches: stats.totalMatches,
+      calculatedWins: stats.totalWins,
+      calculatedWinRate: stats.winRate
+    }
+  }).sort((a, b) => {
+    // Sort by calculated rating first, then by win rate, then by total wins
+    if (b.calculatedRating !== a.calculatedRating) {
+      return b.calculatedRating - a.calculatedRating
     }
 
-    const aWinRate = a.matches > 0 ? a.wins / a.matches : 0
-    const bWinRate = b.matches > 0 ? b.wins / b.matches : 0
-
-    if (bWinRate !== aWinRate) {
-      return bWinRate - aWinRate
+    if (b.calculatedWinRate !== a.calculatedWinRate) {
+      return b.calculatedWinRate - a.calculatedWinRate
     }
 
-    return b.wins - a.wins
+    return b.calculatedWins - a.calculatedWins
   })
+
+  const sortedPlayers = generalPlayers
 
   // Ranking mensal (mês atual)
   const monthlyPlayers = players.map(player => {
@@ -353,7 +402,7 @@ export function RankingTable({ players, matches }: RankingTableProps) {
           <div className="space-y-4">
                 {displayedPlayers.map((player, index) => {
               const position = index + 1
-              const winRate = player.matches > 0 ? (player.wins / player.matches) * 100 : 0
+              const winRate = player.calculatedWinRate * 100 // Usar win rate calculado
                    const stats = getPlayerDetailedStats(player.name)
                    const isMVP = monthlyMVP && player.id === monthlyMVP.id
                    const monthlyStats = getPlayerMonthlyStats(player.name)
@@ -402,7 +451,7 @@ export function RankingTable({ players, matches }: RankingTableProps) {
                              )}
                         </div>
                            <div className="flex items-center gap-2 mt-1">
-                             {getDivisionBadge(player.rating)}
+                             {getDivisionBadge(player.calculatedRating)}
                         </div>
                       </div>
                     </div>
@@ -411,19 +460,19 @@ export function RankingTable({ players, matches }: RankingTableProps) {
                        <div className="grid grid-cols-3 sm:flex sm:items-center gap-3 sm:gap-6 text-xs sm:text-sm w-full sm:w-auto">
                          <div className="text-center">
                            <div className="text-gray-300 text-xs">Pontos</div>
-                           <div className={`font-bold ${getRatingColor(player.rating)} text-sm`}>
-                             {player.rating.toLocaleString()}
+                           <div className={`font-bold ${getRatingColor(player.calculatedRating)} text-sm`}>
+                             {player.calculatedRating.toLocaleString()}
                     </div>
                   </div>
 
                          <div className="text-center">
                            <div className="text-gray-300 text-xs">Partidas</div>
-                           <div className="font-bold text-white text-sm">{player.matches}</div>
+                           <div className="font-bold text-white text-sm">{player.calculatedMatches}</div>
                          </div>
 
                          <div className="text-center">
                            <div className="text-gray-300 text-xs">Vitórias</div>
-                           <div className="font-bold text-green-400 text-sm">{player.wins}</div>
+                           <div className="font-bold text-green-400 text-sm">{player.calculatedWins}</div>
                     </div>
 
                          <div className="text-center">
@@ -434,12 +483,12 @@ export function RankingTable({ players, matches }: RankingTableProps) {
                                {/* Barra de vitórias (verde) */}
                                <div 
                                  className={`bg-gradient-to-r ${winRateBarColors} h-full transition-all duration-300`}
-                                 style={{ width: `${player.wins > 0 ? (player.wins / player.matches) * 100 : 0}%` }}
+                                 style={{ width: `${player.calculatedWins > 0 ? (player.calculatedWins / player.calculatedMatches) * 100 : 0}%` }}
                                />
                                {/* Barra de derrotas (vermelho) */}
                                <div 
                                  className="bg-gray-600 h-full transition-all duration-300"
-                                 style={{ width: `${player.matches > 0 ? ((player.matches - player.wins) / player.matches) * 100 : 0}%` }}
+                                 style={{ width: `${player.calculatedMatches > 0 ? ((player.calculatedMatches - player.calculatedWins) / player.calculatedMatches) * 100 : 0}%` }}
                                />
                              </div>
                            </div>
